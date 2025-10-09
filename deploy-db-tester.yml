@@ -37,15 +37,34 @@ spec:
                   -tAc "SELECT 1;" && echo "OK $(date +%T)" || echo "FAIL $(date +%T)"
                 sleep 10
               done
+
+          startupProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -lc
+                - PGCONNECT_TIMEOUT=5 pg_isready -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER"
+            initialDelaySeconds: 5 
+            failureThreshold: 12   # allow up to 12 failures (2 min) before giving up
+            periodSeconds: 10
+            timeoutSeconds: 3
+
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -lc
+                - PGCONNECT_TIMEOUT=5 pg_isready -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER"
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+
           readinessProbe:
             exec:
               command:
                 - /bin/bash
                 - -lc
-                - >
-                  PGPASSWORD="$DB_PASSWORD" psql
-                  "host=$DB_HOST port=$DB_PORT dbname=$DB_NAME user=$DB_USER sslmode=disable"
-                  -tAc "SELECT 1;" | grep -q 1
+                - PGCONNECT_TIMEOUT=5 pg_isready -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER"
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
