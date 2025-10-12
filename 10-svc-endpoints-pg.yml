@@ -15,7 +15,7 @@ spec:
 apiVersion: v1
 kind: Endpoints
 metadata:
-  name: pg-db
+  name: pg-db-b
   namespace: apps
 subsets:
   - addresses:
