@@ -30,7 +30,13 @@ spec:
               - key: db.env.tmpl
                 path: db.env.tmpl
         - name: approle-creds
-          secret: { secretName: vault-approle-b }
+          secret:
+            secretName: vault-approle-b
+            items:
+              - key: role_id
+                path: role_id
+              - key: WRAPPED_TOKEN
+                path: WRAPPED_TOKEN
         - name: vault-secrets
           emptyDir: {}   # shared between app and agent
 
