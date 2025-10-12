@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-b
+  namespace: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: webapp-b }
+  template:
+    metadata:
+      labels: { app: webapp-b }
+    spec:
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - { name: ndots, value: "2" }
+          - { name: timeout, value: "2" }
+          - { name: attempts, value: "2" }
+
+      volumes:
+        - name: db-config
+          configMap: { name: db-config-b }
+        - name: agent-config
+          configMap: { name: vault-agent-config-b }
+        - name: agent-templates
+          configMap:
+            name: vault-agent-config-b
+            items:
+              - key: db.env.tmpl
+                path: db.env.tmpl
+        - name: approle-creds
+          secret: { secretName: vault-approle-b }
+        - name: vault-secrets
+          emptyDir: {}   # shared between app and agent
+
+      containers:
+        # A) Your app (demo uses postgres client to prove connectivity)
+        - name: app
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: db-config-b }
+          volumeMounts:
+            - { name: vault-secrets, mountPath: /vault/secrets, readOnly: true }
+          command: ["/bin/bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              echo "waiting for /vault/secrets/db.env ..."
+              until [ -s /vault/secrets/db.env ]; do sleep 1; done
+              set -o allexport; . /vault/secrets/db.env; set +o allexport
+              echo "probing DB with dynamic creds..."
+              while true; do
+                PGPASSWORD="$DB_PASSWORD" psql \
+                  "host=$DB_HOST port=$DB_PORT dbname=$DB_NAME user=$DB_USER sslmode=disable" \
+                  -tAc "SELECT current_user, now();" && echo "OK $(date +%T)" || echo "FAIL $(date +%T)"
+                sleep 10
+              done
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+        # B) Vault Agent sidecar
+        - name: vault-agent
+          image: hashicorp/vault:1.20
+          args: ["agent","-config=/vault/config/agent.hcl","-log-level=info"]
+          env:
+            - { name: VAULT_ADDR, value: "http://10.20.6.4:8200" }  # <-- set to your Vault
+            - { name: VAULT_DB_ROLE, valueFrom: { configMapKeyRef: { name: db-config-b, key: VAULT_DB_ROLE } } }
+            # If Vault uses private CA:
+            # - { name: VAULT_CACERT, value: /vault/ca/ca.pem }
+          volumeMounts:
+            - { name: agent-config,    mountPath: /vault/config,    readOnly: true }
+            - { name: agent-templates, mountPath: /vault/templates, readOnly: true }
+            - { name: approle-creds,   mountPath: /vault/creds,     readOnly: true }
+            - { name: vault-secrets,   mountPath: /vault/secrets }
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

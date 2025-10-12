@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-config-b
+  namespace: apps
+data:
+  # -------- agent.hcl --------
+  agent.hcl: |
+    exit_after_auth = false
+
+    auto_auth {
+      method "approle" {
+        mount_path = "auth/approle"
+        config = {
+          role_id_file_path   = "/vault/creds/role_id"
+          secret_id_file_path = "/vault/creds/secret_id"
+          # (later, for wrapped SecretID: use wrapped_token_file_path instead)
+        }
+      }
+      sink "file" {
+        config = { path = "/home/vault/.vault-token" }
+      }
+    }
+
+    template {
+      source      = "/vault/templates/db.env.tmpl"
+      destination = "/vault/secrets/db.env"
+      command     = "sh -c 'chmod 0640 /vault/secrets/db.env'"
+    }
+
+  # -------- db.env.tmpl --------
+  # Renders the dynamic DB creds into a shell env file the app can source.
+  # Uses env VAULT_DB_ROLE to pick which database/creds/<role> path to read.
+  db.env.tmpl: |
+    {{- $role := env "VAULT_DB_ROLE" -}}
+    {{- with secret (printf "database/creds/%s" $role) -}}
+    DB_USER={{ .Data.username }}
+    DB_PASSWORD={{ .Data.password }}
+    {{- end }}
