@@ -13,7 +13,8 @@ data:
         mount_path = "auth/approle"
         config = {
           role_id_file_path   = "/vault/creds/role_id"
-          secret_id_file_path = "/vault/creds/secret_id"
+          wrapped_token_file_path = "/vault/creds/WRAPPED_TOKEN"
+          # secret_id_file_path = "/vault/creds/secret_id"
           # (later, for wrapped SecretID: use wrapped_token_file_path instead)
         }
       }
