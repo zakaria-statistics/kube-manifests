@@ -45,7 +45,10 @@ echo "WRAP=$WRAP"
 # Result:
 ROLE_ID=603e9881-c5a0-6945-d175-f94fd040bb6e
 SECRET_ID=64237c41-03ce-fe9f-3014-08530d3e9aae
-WRAP=hvs.CAESIFwtxt89Mlioq1uztucYK2Kr-SdiS6bjnl2DtoDiHrY7Gh4KHGh2cy54STRLd3ZBeWlaOEo0Y1Q0MzY5WGFJbGk
+WRAP=hvs.CAESIHH2w6p-MlGA9BBkq5P6CryzIykFHYkjBNBB7XLTJ1a2Gh4KHGh2cy5SRUp2bmdDVGd3WUprMzAzOUdVQURIekg
+
+VAULT_TOKEN="$WRAP" vault write -format=json -f sys/wrapping/lookup | jq .
+
 
 # Issue one dynamic cred
 vault read -format=json database/creds/app-db-role-b | tee /tmp/cred_b.json
