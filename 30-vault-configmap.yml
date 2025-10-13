@@ -13,10 +13,11 @@ data:
         mount_path = "auth/approle"
         config = {
           role_id_file_path   = "/vault/creds/role_id"
-          wrapped_token_file_path = "/vault/creds/WRAPPED_TOKEN"
-          secret_id_response_wrapping_path  = "sys/wrapping/unwrap"
+          secret_id_file_path = "/vault/creds/WRAPPED_TOKEN"
+          # must match the creation path you used to generate the wrap
+          secret_id_response_wrapping_path  = "auth/approle/role/app-approle-b/secret-id"
           # secret_id_file_path = "/vault/creds/secret_id"
-          # (later, for wrapped SecretID: use wrapped_token_file_path instead)
+          remove_secret_id_file_after_reading = false
         }
       }
       sink "file" {
