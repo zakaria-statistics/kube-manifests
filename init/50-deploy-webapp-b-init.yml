@@ -49,8 +49,8 @@ spec:
             - name: approle-creds-src
               mountPath: /vault/creds
               readOnly: true
-            - name: vault-secrets
-              mountPath: /vault/secrets
+            - name: vault-creds
+              mountPath: /vault/creds
           command: ["/bin/sh","-lc"]
           args:
             - |
