@@ -1,10 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: vault-agent-config-b
+  name: vault-agent-config-b-init
   namespace: apps
 data:
-  # -------- agent.hcl --------
   agent.hcl: |
     exit_after_auth = false
 
@@ -12,12 +11,11 @@ data:
       method "approle" {
         mount_path = "auth/approle"
         config = {
-          role_id_file_path   = "/vault/creds/role_id"
-          secret_id_file_path = "/vault/creds/WRAPPED_TOKEN"
-          # must match the creation path you used to generate the wrap
-          secret_id_response_wrapping_path  = "auth/approle/role/app-approle-b/secret-id"
-          # secret_id_file_path = "/vault/creds/secret_id"
-          # remove_secret_id_file_after_reading = false
+          role_id_file_path    = "/vault/creds/role_id"
+          # Agent will read the secret_id produced by the init container
+          secret_id_file_path  = "/vault/creds/secret_id"
+          # Once validated and stable, set to true to remove the secret file after reading
+          remove_secret_id_file_after_reading = true
         }
       }
       sink "file" {
@@ -31,12 +29,11 @@ data:
       command     = "sh -c 'chmod 0640 /vault/secrets/db.env'"
     }
 
-  # -------- db.env.tmpl --------
-  # Renders the dynamic DB creds into a shell env file the app can source.
-  # Uses env VAULT_DB_ROLE to pick which database/creds/<role> path to read.
   db.env.tmpl: |
     {{- $role := env "VAULT_DB_ROLE" -}}
     {{- with secret (printf "database/creds/%s" $role) -}}
     DB_USER={{ .Data.username }}
     DB_PASSWORD={{ .Data.password }}
+    DB_LEASE_ID={{ .LeaseID | default "" }}
+    DB_LEASE_TTL={{ .LeaseDuration | default "" }}
     {{- end }}

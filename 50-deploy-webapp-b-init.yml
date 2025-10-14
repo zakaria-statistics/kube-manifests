@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-b
+  namespace: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: webapp-b }
+  template:
+    metadata:
+      labels: { app: webapp-b }
+    spec:
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - { name: ndots, value: "2" }
+          - { name: timeout, value: "2" }
+          - { name: attempts, value: "2" }
+
+      volumes:
+        - name: db-config
+          configMap: { name: db-config-b }
+        - name: agent-config
+          configMap: { name: vault-agent-config-b-init }
+        - name: agent-templates
+          configMap:
+            name: vault-agent-config-b-init
+            items:
+              - key: db.env.tmpl
+                path: db.env.tmpl
+        - name: approle-creds-src
+          secret:
+            secretName: vault-approle-b
+            optional: false
+        - name: vault-creds
+          emptyDir: {}
+        - name: vault-secrets
+          emptyDir: {}   # shared between app and agent
+
+      iniContainers:
+        - name:
+          image: hashicorp/vault:1.20.4
+          imagePullPolicy: IfNotPresent
+          env: 
+            - name: VAULT_ADDR
+              value: "http://10.20.6.4:8200"
+          volumeMounts:
+            - name: approle-creds-src
+              mountPath: /vault/creds
+              readOnly: true
+            - name: vault-secrets
+              mountPath: /vault/secrets
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              echo "[init]" start: copy role_id and wrapped token into writable dir"
+              # ensure writable dir exists
+              mkdir -p /vault/creds
+              # copy from secret mount (keys as in the secret)
+              if [ -f /vault/creds-src/role_id ]; then
+                cp /vault/creds-src/role_id /vault/creds/role_id
+                chmod 0600 /vault/creds/role_id
+                echo "[init] role_id copied"
+              else
+                echo "[init][ERROR] role_id not found in /vault/creds-src" >&2
+                exit 1
+              fi
+
+              if [ -f /vault/creds-src/WRAPPED_TOKEN ]; then
+                cp /vault/creds-src/WRAPPED_TOKEN /vault/creds/WRAPPED_TOKEN
+                chmod 0600 /vault/creds/WRAPPED_TOKEN
+                echo "[init] WRAPPED_TOKEN copied"
+              else
+                echo "[init][ERROR] WRAPPED_TOKEN not found in /vault/creds-src" >&2
+                exit 1
+              fi
+
+              # read wrap token
+              WRAP_TOKEN=$(cat /vault/creds/WRAPPED_TOKEN | tr -d '\r\n')
+              if [ -z "$WRAP_TOKEN" ]; then
+                echo "[init][ERROR] WRAPPED_TOKEN is empty" >&2
+                exit 1
+              fi
+              echo "[init] attempting to unwrap (vault unwrap) — do NOT unwrap this token elsewhere"
+
+              # Use VAULT_TOKEN env to pass the wrap token to the CLI (vault unwrap consumes it)
+              export VAULT_TOKEN="$WRAP_TOKEN"
+
+              # unwrap and get secret_id (json path may differ by CLI version; prefer -format=json)
+              # 'vault unwrap' will consume the wrap token and output JSON with .data.secret_id
+              set +e
+              UNWRAP_JSON=$(vault unwrap -address="$VAULT_ADDR" -format=json 2>&1)
+              UNWRAP_EXIT=$?
+              set -e
+
+              if [ $UNWRAP_EXIT -ne 0 ]; then
+                echo "[init][ERROR] vault unwrap failed:"
+                echo "$UNWRAP_JSON"
+                exit 1
+              fi
+
+              # extract secret_id from returned JSON
+              SECRET_ID=$(echo "$UNWRAP_JSON" | jq -r '.data.secret_id // empty')
+
+              if [ -z "$SECRET_ID" ] || [ "$SECRET_ID" = "null" ]; then
+                echo "[init][ERROR] could not extract secret_id from unwrap output" >&2
+                echo "$UNWRAP_JSON"
+                exit 1
+              fi
+
+              # write secret_id for agent to consume
+              printf "%s" "$SECRET_ID" > /vault/creds/secret_id
+              chmod 0600 /vault/creds/secret_id
+              echo "[init] secret_id written to /vault/creds/secret_id"
+
+              # cleanup: remove the WRAPPED_TOKEN file for safety (optional)
+              rm -f /vault/creds/WRAPPED_TOKEN || true
+
+              echo "[init] DONE"
+      containers:
+        # A) Your app (demo uses postgres client to prove connectivity)
+        - name: app
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: db-config-b }
+          volumeMounts:
+            - { name: vault-secrets, mountPath: /vault/secrets, readOnly: true }
+          command: ["/bin/bash","-lc"]
+          args:
+            - |
+              set -euo pipefail
+              echo "waiting for /vault/secrets/db.env ..."
+              until [ -s /vault/secrets/db.env ]; do sleep 1; done
+              set -o allexport; . /vault/secrets/db.env; set +o allexport
+              echo "probing DB with dynamic creds..."
+              while true; do
+                PGPASSWORD="$DB_PASSWORD" psql \
+                  "host=$DB_HOST port=$DB_PORT dbname=$DB_NAME user=$DB_USER sslmode=disable" \
+                  -tAc "SELECT current_user, now();" && echo "OK $(date +%T)" || echo "FAIL $(date +%T)"
+                sleep 10
+              done
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+        # B) Vault Agent sidecar
+        - name: vault-agent
+          image: hashicorp/vault:1.20
+          args: ["agent","-config=/vault/config/agent.hcl","-log-level=debug"]
+          env:
+            - { name: VAULT_ADDR, value: "http://10.20.6.4:8200" }  # <-- set to your Vault
+            - { name: VAULT_DB_ROLE, valueFrom: { configMapKeyRef: { name: db-config-b, key: VAULT_DB_ROLE } } }
+            # If Vault uses private CA:
+            # - { name: VAULT_CACERT, value: /vault/ca/ca.pem }
+          volumeMounts:
+            - { name: agent-config,    mountPath: /vault/config,    readOnly: true }
+            - { name: agent-templates, mountPath: /vault/templates, readOnly: true }
+            - { name: vault-creds,   mountPath: /vault/creds}
+            - { name: vault-secrets,   mountPath: /vault/secrets }
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
