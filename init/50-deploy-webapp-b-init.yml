@@ -47,7 +47,7 @@ spec:
               value: "http://10.20.6.4:8200"
           volumeMounts:
             - name: approle-creds-src
-              mountPath: /vault/creds
+              mountPath: /vault/creds-src
               readOnly: true
             - name: vault-creds
               mountPath: /vault/creds
