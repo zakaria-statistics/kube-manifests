@@ -38,8 +38,8 @@ spec:
         - name: vault-secrets
           emptyDir: {}   # shared between app and agent
 
-      iniContainers:
-        - name:
+      initContainers:
+        - name: init-unwrap-approle
           image: hashicorp/vault:1.20.4
           imagePullPolicy: IfNotPresent
           env: 
