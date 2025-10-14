@@ -54,11 +54,13 @@ spec:
           command: ["/bin/sh","-lc"]
           args:
             - |
-              set -euo pipefail
-              echo "[init]" start: copy role_id and wrapped token into writable dir"
-              # ensure writable dir exists
+              set -eu
+              echo "[init] copying role_id and wrapped token into writable dir"
+
+              # writable dir
               mkdir -p /vault/creds
-              # copy from secret mount (keys as in the secret)
+
+              # copy role_id from the secret mount
               if [ -f /vault/creds-src/role_id ]; then
                 cp /vault/creds-src/role_id /vault/creds/role_id
                 chmod 0600 /vault/creds/role_id
@@ -68,57 +70,40 @@ spec:
                 exit 1
               fi
 
+              # read wrap token directly from the secret mount (no need to copy)
               if [ -f /vault/creds-src/WRAPPED_TOKEN ]; then
-                cp /vault/creds-src/WRAPPED_TOKEN /vault/creds/WRAPPED_TOKEN
-                chmod 0600 /vault/creds/WRAPPED_TOKEN
-                echo "[init] WRAPPED_TOKEN copied"
+                WRAP_TOKEN=$(tr -d '\r\n' < /vault/creds-src/WRAPPED_TOKEN)
               else
                 echo "[init][ERROR] WRAPPED_TOKEN not found in /vault/creds-src" >&2
                 exit 1
               fi
 
-              # read wrap token
-              WRAP_TOKEN=$(cat /vault/creds/WRAPPED_TOKEN | tr -d '\r\n')
               if [ -z "$WRAP_TOKEN" ]; then
                 echo "[init][ERROR] WRAPPED_TOKEN is empty" >&2
                 exit 1
               fi
-              echo "[init] attempting to unwrap (vault unwrap) — do NOT unwrap this token elsewhere"
 
-              # Use VAULT_TOKEN env to pass the wrap token to the CLI (vault unwrap consumes it)
+              echo "[init] unwrapping secret_id (single-use)"
               export VAULT_TOKEN="$WRAP_TOKEN"
 
-              # unwrap and get secret_id (json path may differ by CLI version; prefer -format=json)
-              # 'vault unwrap' will consume the wrap token and output JSON with .data.secret_id
-              set +e
-              UNWRAP_JSON=$(vault unwrap -address="$VAULT_ADDR" -format=json 2>&1)
-              UNWRAP_EXIT=$?
-              set -e
-
-              if [ $UNWRAP_EXIT -ne 0 ]; then
+              # unwrap and capture just the secret_id (no jq needed)
+              if ! SECRET_ID=$(vault unwrap -address="$VAULT_ADDR" -field=secret_id 2>/tmp/unwrap.err); then
                 echo "[init][ERROR] vault unwrap failed:"
-                echo "$UNWRAP_JSON"
+                cat /tmp/unwrap.err
                 exit 1
               fi
 
-              # extract secret_id from returned JSON
-              SECRET_ID=$(echo "$UNWRAP_JSON" | jq -r '.data.secret_id // empty')
-
-              if [ -z "$SECRET_ID" ] || [ "$SECRET_ID" = "null" ]; then
-                echo "[init][ERROR] could not extract secret_id from unwrap output" >&2
-                echo "$UNWRAP_JSON"
+              if [ -z "$SECRET_ID" ]; then
+                echo "[init][ERROR] could not extract secret_id" >&2
                 exit 1
               fi
 
-              # write secret_id for agent to consume
+              # write secret_id for the agent to consume
               printf "%s" "$SECRET_ID" > /vault/creds/secret_id
               chmod 0600 /vault/creds/secret_id
               echo "[init] secret_id written to /vault/creds/secret_id"
-
-              # cleanup: remove the WRAPPED_TOKEN file for safety (optional)
-              rm -f /vault/creds/WRAPPED_TOKEN || true
-
               echo "[init] DONE"
+
       containers:
         # A) Your app (demo uses postgres client to prove connectivity)
         - name: app
