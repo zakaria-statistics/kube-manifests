@@ -51,7 +51,7 @@ spec:
               readOnly: true
             - name: vault-secrets
               mountPath: /vault/secrets
-          command: ["/bin/sh","-c"]
+          command: ["/bin/sh","-lc"]
           args:
             - |
               set -euo pipefail
