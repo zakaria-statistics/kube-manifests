@@ -51,9 +51,8 @@ spec:
               readOnly: true
             - name: vault-secrets
               mountPath: /vault/secrets
-          command:
-            - /bin/sh
-            - -ec
+          command: ["/bin/sh","-c"]
+          args:
             - |
               set -euo pipefail
               echo "[init]" start: copy role_id and wrapped token into writable dir"
