@@ -34,6 +34,10 @@ data:
     {{- with secret (printf "database/creds/%s" $role) -}}
     DB_USER={{ .Data.username }}
     DB_PASSWORD={{ .Data.password }}
-    DB_LEASE_ID={{ .LeaseID | default "" }}
-    DB_LEASE_TTL={{ .LeaseDuration | default "" }}
+    {{- if .LeaseID }}
+    DB_LEASE_ID={{ .LeaseID }}
+    {{- end }}
+    {{- if .LeaseDuration }}
+    DB_LEASE_TTL={{ .LeaseDuration }}
+    {{- end }}
     {{- end }}
