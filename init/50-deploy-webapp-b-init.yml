@@ -63,7 +63,8 @@ spec:
               # copy role_id from the secret mount
               if [ -f /vault/creds-src/role_id ]; then
                 cp /vault/creds-src/role_id /vault/creds/role_id
-                chmod 0600 /vault/creds/role_id
+                chown 100:100 /vault/creds/role_id
+                chmod 0640 /vault/creds/role_id
                 echo "[init] role_id copied"
               else
                 echo "[init][ERROR] role_id not found in /vault/creds-src" >&2
@@ -100,7 +101,8 @@ spec:
 
               # write secret_id for the agent to consume
               printf "%s" "$SECRET_ID" > /vault/creds/secret_id
-              chmod 0600 /vault/creds/secret_id
+              chown 100:100 /vault/creds/secret_id
+              chmod 0640 /vault/creds/secret_id
               echo "[init] secret_id written to /vault/creds/secret_id"
               echo "[init] DONE"
 
