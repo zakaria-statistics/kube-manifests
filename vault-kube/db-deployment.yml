@@ -33,7 +33,7 @@ spec:
       containers:
         - name: app
           image: postgres:16
-          envFrom: [{ configMapRef: { name: db-config } }]
+          envFrom: [{ configMapRef: { name: db-configs } }]
           volumeMounts:
             - { name: vault-secrets, mountPath: /vault/secrets, readOnly: true }
             # If private CA, also:
