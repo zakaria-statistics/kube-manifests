@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-k8s-auth
+  namespace: apps
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: webapp-k8s-auth } }
+  template:
+    metadata:
+      labels: { app: webapp-k8s-auth }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "db-role"
+        vault.hashicorp.com/agent-env: |
+          VAULT_ADDR=http://10.20.6.4:8200
+          # If Vault uses a private CA, also:
+          # VAULT_CACERT=/vault/tls/ca.crt
+        vault.hashicorp.com/agent-inject-secret-dbcreds: "database/creds/readonly-role"
+        vault.hashicorp.com/agent-inject-template-dbcreds: |
+          {{- with secret "database/creds/readonly-role" -}}
+          DB_USER={{ .Data.username }}
+          DB_PASSWORD={{ .Data.password }}
+          {{- end }}
+    spec:
+      serviceAccountName: db-app-sa
+      volumes:
+        - name: vault-secrets
+          emptyDir: {}
+        # If private CA, add:
+        # - name: vault-ca
+        #   secret: { name: vault-ca }
+      containers:
+        - name: app
+          image: postgres:16
+          envFrom: [{ configMapRef: { name: db-config } }]
+          volumeMounts:
+            - { name: vault-secrets, mountPath: /vault/secrets, readOnly: true }
+            # If private CA, also:
+            # - { name: vault-ca, mountPath: /vault/tls, readOnly: true }
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              echo "waiting for /vault/secrets/dbcreds ..."
+              until [ -s /vault/secrets/dbcreds ]; do sleep 1; done
+              set -a; . /vault/secrets/dbcreds; set +a
+              echo "probing DB..."
+              PGPASSWORD="$DB_PASSWORD" psql \
+                "host=$DB_HOST port=$DB_PORT dbname=$DB_NAME user=$DB_USER sslmode=disable" \
+                -tAc "SELECT current_user, now();" && echo "OK" || (echo "FAIL"; exit 1)
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

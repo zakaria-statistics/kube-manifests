@@ -1,0 +1,25 @@
+# svc-endpoints-pg.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-db-b
+  namespace: apps
+spec:
+  clusterIP: None
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: 5432
+  selector: {}   # no selector; we supply Endpoints
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: pg-db-b
+  namespace: apps
+subsets:
+  - addresses:
+      - ip: 10.20.4.5   # ← your Postgres VM IP(s) in Sub4
+    ports:
+      - name: pg
+        port: 5432
